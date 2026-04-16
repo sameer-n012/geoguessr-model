@@ -1,0 +1,26 @@
+[project]
+name = "geoguessr-model"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "torch",
+    "torchvision",
+    "torchaudio",
+    "timm",
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "pillow",
+    "opencv-python",
+    "tqdm",
+    "rich",
+    "pydantic",
+    "h3",
+    "einops",
+    "scipy",
+    "datasets",
+    "huggingface_hub"
+]
