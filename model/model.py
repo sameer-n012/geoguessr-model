@@ -25,7 +25,7 @@ class GeoModel(nn.Module):
         self.residual = nn.Linear(dim, 2)
         self.retrieval = nn.Linear(dim, 256)
 
-    def forward(self, images):
+    def forward(self, images, view_mask=None):
         B, N, C, H, W = images.shape
 
         images = images.view(B * N, C, H, W)
@@ -33,7 +33,14 @@ class GeoModel(nn.Module):
         feats = feats.view(B, N, -1)
 
         weights = self.gate(feats)
-        z = (feats * weights).sum(1) / (weights.sum(1) + 1e-6)
+        if view_mask is not None:
+            # view_mask: [B, N] with 1 for valid views, 0 for padding
+            mask = view_mask.unsqueeze(-1).to(weights.dtype)
+            weights = weights * mask
+            denom = weights.sum(1) + 1e-6
+            z = (feats * weights).sum(1) / denom
+        else:
+            z = (feats * weights).sum(1) / (weights.sum(1) + 1e-6)
 
         z = self.head(z)
 

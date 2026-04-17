@@ -95,7 +95,7 @@ class GeoDataset(IterableDataset):
 
                 img = np.array(img)
 
-                views = preprocess(img, item["_format"])
+                views = preprocess(img, item["_format"], num_views=None, size=self.cfg.image_size)
                 views = [self.transform(v) for v in views]
 
                 yield {

@@ -1,0 +1,2 @@
+rm checkpoints/*.pt
+rm 

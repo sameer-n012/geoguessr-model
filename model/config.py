@@ -4,12 +4,16 @@ import torch
 class Config:
     model_name = "vit_base_patch16_224"
     image_size = 336
+    num_views = 4
 
-    batch_size = 16
-    num_workers = 4
-    lr = 3e-4
+    batch_size = 128
+    num_workers = 8
+    base_lr = 3e-4 / 16
+    lr = base_lr * batch_size
     epochs = 10
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    pin_memory = True
+    persist_workers = True
 
     hf_datasets = [
         {
@@ -55,7 +59,8 @@ class Config:
 
     # checkpointing
     ckpt_dir = "./checkpoints"
-    save_every = 1000
+    save_every = 200
+    training_data_path = "./model/train/train.json"
 
 
 cfg = Config()

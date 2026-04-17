@@ -44,15 +44,11 @@ def extract_gps_latlon(pil_img):
         (lat, lon) or (None, None) if unavailable/unparseable.
     """
 
-    print("here1")
-
     exif = None
     try:
         exif = pil_img.getexif()
     except Exception:
         exif = None
-
-    print("here2", exif)
 
     if not exif:
         return None, None
@@ -64,8 +60,6 @@ def extract_gps_latlon(pil_img):
     except Exception:
         gps_ifd = exif.get(34853)
 
-    print("here3", gps_ifd)
-
     if not gps_ifd:
         return None, None
 
@@ -76,14 +70,10 @@ def extract_gps_latlon(pil_img):
     except Exception:
         gps = gps_ifd
 
-    print("here4", gps)
-
     lat_ref = gps.get("GPSLatitudeRef")
     lon_ref = gps.get("GPSLongitudeRef")
     lat_dms = gps.get("GPSLatitude")
     lon_dms = gps.get("GPSLongitude")
-
-    print(lat_ref, lat_dms, lon_ref, lon_dms)
 
     lat = _dms_to_deg(lat_dms)
     lon = _dms_to_deg(lon_dms)
@@ -209,7 +199,7 @@ def equirectangular_to_perspective(img, fov, yaw, pitch, out_hw):
     )
 
 
-def split_pano(img, size=336):
+def split_pano(img, size=224):
 
     return [
         equirectangular_to_perspective(img, 90, yaw, 0, (size, size))
@@ -217,7 +207,7 @@ def split_pano(img, size=336):
     ]
 
 
-def split_stiched(img, size=336):
+def split_stiched(img, size=224):
     """
     For random_streetview_images dataset:
     image is 3 horizontal 120° crops stitched together
@@ -234,13 +224,11 @@ def split_stiched(img, size=336):
     return views
 
 
-def preprocess(img, format, size=336):
+def preprocess(img, format, size=224, num_views=None):
     if format == "equirect":
         views = split_pano(img, size)
-
     elif format == "stitched_3":
         views = split_stiched(img, size)
-
     else:
         raise ValueError(f"Unknown pano format: {format}")
 
