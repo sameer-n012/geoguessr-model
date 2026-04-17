@@ -22,5 +22,9 @@ dependencies = [
     "einops",
     "scipy",
     "datasets",
-    "huggingface_hub"
+    "huggingface_hub",
+    "matplotlib",
+    "reverse_geocoder",
+    # "h3-py",
+    # "faiss"
 ]
