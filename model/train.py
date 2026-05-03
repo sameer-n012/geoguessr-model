@@ -17,7 +17,7 @@ def save_ckpt(model, opt, step, path, training_data, training_data_path):
     
     if training_data and training_data_path:
         with open(training_data_path, "w") as f:
-            json.dump(training_data, f)
+            json.dump(training_data, f, indent=4)
     torch.save(
         {"model": model.state_dict(), "opt": opt.state_dict(), "step": step}, path
     )
@@ -68,6 +68,9 @@ def geo_loss(pred, target, lat, lon):
     loss += 0.3 * contrastive_loss(pred["retrieval"], lat, lon)
 
     return loss
+
+
+torch.cuda.empty_cache()
 
 
 transform = transforms.Compose(

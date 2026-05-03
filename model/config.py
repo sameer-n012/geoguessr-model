@@ -59,7 +59,7 @@ class Config:
 
     # checkpointing
     ckpt_dir = "./checkpoints"
-    save_every = 200
+    save_every = 50
     training_data_path = "./model/train/train.json"
 
 

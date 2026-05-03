@@ -35,7 +35,7 @@ class GeoDataset(IterableDataset):
 
         streams: list = []
         for d in cfg.hf_datasets:
-            ds = load_dataset(d["name"], split="train", streaming=True)
+            ds = load_dataset(d["name"], split="train", streaming=True, token=self.hf_token)
             # Avoid Arrow type inference on raw PIL.Image objects by not using
             # `datasets.interleave_datasets()`. We still annotate each example
             # with source + pano format for downstream preprocessing.
