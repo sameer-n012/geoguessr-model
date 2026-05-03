@@ -1,2 +1,2 @@
-rm checkpoints/*.pt
-rm 
+rm checkpoints/last.pt
+rm model/train/train.json

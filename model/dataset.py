@@ -6,6 +6,7 @@ import torch
 from datasets import load_dataset
 from preprocess import extract_geo_from_pil, preprocess
 from torch.utils.data import IterableDataset
+import os
 
 
 class CountryEncoder:
@@ -30,6 +31,7 @@ class GeoDataset(IterableDataset):
         self.transform = transform
         self.cell_mapper = cell_mapper
         self.country_encoder = country_encoder
+        self.hf_token = os.getenv("HF_ACCESS_TOKEN")
 
         streams: list = []
         for d in cfg.hf_datasets:

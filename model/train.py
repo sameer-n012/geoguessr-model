@@ -14,8 +14,10 @@ from model import GeoModel
 
 
 def save_ckpt(model, opt, step, path, training_data, training_data_path):
-    with open(training_data_path, "w") as f:
-        json.dump(training_data, f)
+    
+    if training_data and training_data_path:
+        with open(training_data_path, "w") as f:
+            json.dump(training_data, f)
     torch.save(
         {"model": model.state_dict(), "opt": opt.state_dict(), "step": step}, path
     )
@@ -109,9 +111,9 @@ loader = DataLoader(
     dataset,
     batch_size=cfg.batch_size,
     collate_fn=collate_variable_views,
-    pin_memory=cfg.pin_memory,
-    num_workers=cfg.num_workers,
-    persistent_workers=cfg.persist_workers,
+    # pin_memory=cfg.pin_memory,
+    # num_workers=cfg.num_workers,
+    # persistent_workers=cfg.persist_workers,
 )
 
 num_coarse, num_fine, num_country = 10000, 20000, 300
@@ -134,16 +136,19 @@ training_data = {
     "num_fine": num_fine,
     "num_country": num_country,
     "training_log": [],
+    "best_epoch": -1,
+    "best_loss": -1.0
 }
 
 step, start_step = 0, 0
 
 ckpt_path = f"{cfg.ckpt_dir}/last.pt"
+best_ckpt_path = f"{cfg.ckpt_dir}/best.pt"
 if os.path.exists(ckpt_path):
     start_step, training_data = load_ckpt(model, opt, ckpt_path, cfg.training_data_path)
 
 
-scaler = torch.cuda.amp.GradScaler()
+# scaler = torch.cuda.amp.GradScaler()
 
 for epoch in range(cfg.epochs):
     # pbar = tqdm(total=len(loader), desc=f"Epoch {epoch + 1}/{cfg.epochs}", unit="batch")
@@ -156,6 +161,8 @@ for epoch in range(cfg.epochs):
 
         imgs = batch["images"].to(cfg.device, non_blocking=True)
         view_mask = batch["view_mask"].to(cfg.device, non_blocking=True)
+        # imgs = batch["images"].to(cfg.device)
+        # view_mask = batch["view_mask"].to(cfg.device)
 
         coarse_ids, fine_ids, residuals = [], [], []
 
@@ -176,27 +183,39 @@ for epoch in range(cfg.epochs):
             "residual": torch.tensor(residuals).float().to(cfg.device),
         }
 
-        opt.zero_grad(set_to_none=True)
-        with torch.cuda.amp.autocast():
-            pred = model(imgs, view_mask=view_mask)
+        # opt.zero_grad(set_to_none=True)
+        opt.zero_grad()
+        # with torch.cuda.amp.autocast():
+        pred = model(imgs, view_mask=view_mask)
 
-            lat_tensor = torch.tensor(batch["lat"]).float().to(cfg.device)
-            lon_tensor = torch.tensor(batch["lon"]).float().to(cfg.device)
+        lat_tensor = torch.tensor(batch["lat"]).float().to(cfg.device)
+        lon_tensor = torch.tensor(batch["lon"]).float().to(cfg.device)
 
-            loss = geo_loss(pred, target, lat_tensor, lon_tensor)
+        loss = geo_loss(pred, target, lat_tensor, lon_tensor)
 
-        scaler.scale(loss).backward()
-        scaler.step(opt)
-        scaler.update()
+        # scaler.scale(loss).backward()
+        # scaler.step(opt)
+        # scaler.update()
+        loss.backward()
+        opt.step()
 
-        training_data["training_log"].append({"step": step, "loss": loss.item()})
+        l = loss.item()
+        training_data["training_log"].append({"step": step, "loss": l})
+
 
         if step % cfg.save_every == 0:
-            tqdm.write(f"Saving checkpoint at step {step} with loss {loss.item():.4f}")
+            tqdm.write(f"Saving checkpoint at step {step} with loss {l:.4f}")
             save_ckpt(
                 model, opt, step, ckpt_path, training_data, cfg.training_data_path
             )
 
         # print(f"step {step} loss {loss.item():.4f}")
-        pbar.set_postfix(loss=f"{loss.item():.4f}", step=step)
+        pbar.set_postfix(loss=f"{l:.4f}", step=step+1)
         step += 1
+
+    if training_data["best_loss"] == -1.0 or training_data["best_loss"] > l:
+        training_data["best_loss"] = l
+        training_data["best_epoch"] = epoch
+        save_ckpt(
+            model, opt, step, best_ckpt_path, None, None
+        )

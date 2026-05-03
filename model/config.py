@@ -3,11 +3,11 @@ import torch
 
 class Config:
     model_name = "vit_base_patch16_224"
-    image_size = 336
+    image_size = 224
     num_views = 4
 
-    batch_size = 128
-    num_workers = 8
+    batch_size = 64
+    num_workers = 4
     base_lr = 3e-4 / 16
     lr = base_lr * batch_size
     epochs = 10
@@ -22,9 +22,9 @@ class Config:
             "format": "equirect",
             "is_geotagged": True,
             "column_mapping": {
-                "image": "jpg",
-                "lat": None,
-                "lon": None,
+                "image": "image",
+                "lat": "lat",
+                "lon": "lon",
                 "country": None,
             },
         },
