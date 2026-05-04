@@ -33,6 +33,8 @@ class GeoDataset(IterableDataset):
         self.country_encoder = country_encoder
         self.hf_token = os.getenv("HF_ACCESS_TOKEN")
 
+        print(f"HF TOKEN: {self.hf_token[:5]}...")
+
         streams: list = []
         for d in cfg.hf_datasets:
             ds = load_dataset(d["name"], split="train", streaming=True, token=self.hf_token)

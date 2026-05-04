@@ -124,6 +124,8 @@ model = GeoModel(num_coarse, num_fine, num_country).to(cfg.device)
 # model = torch.compile(model)
 opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
 
+print(f"Running on {cfg.device}")
+
 training_data = {
     "device": cfg.device,
     "model_name": cfg.model_name,
@@ -148,7 +150,9 @@ step, start_step = 0, 0
 ckpt_path = f"{cfg.ckpt_dir}/last.pt"
 best_ckpt_path = f"{cfg.ckpt_dir}/best.pt"
 if os.path.exists(ckpt_path):
+    print("Loading from last checkpoint")
     start_step, training_data = load_ckpt(model, opt, ckpt_path, cfg.training_data_path)
+    print(f"Starting from step {start_step}")
 
 
 # scaler = torch.cuda.amp.GradScaler()

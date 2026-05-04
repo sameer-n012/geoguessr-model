@@ -1,5 +1,7 @@
 #!/bin/bash
 
+conda deactivate
+
 set -a
 source .venv/bin/activate
 source .env
