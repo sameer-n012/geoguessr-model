@@ -1,7 +1,9 @@
+import itertools
 import json
 import os
 
 import torch
+import torch.multiprocessing as mp
 import torch.nn.functional as F
 from cells import CellMapper, compute_residual, latlon_to_cells
 from config import cfg
@@ -14,7 +16,7 @@ from model import GeoModel
 
 
 def save_ckpt(model, opt, step, path, training_data, training_data_path):
-    
+
     if training_data and training_data_path:
         with open(training_data_path, "w") as f:
             json.dump(training_data, f, indent=4)
@@ -70,159 +72,172 @@ def geo_loss(pred, target, lat, lon):
     return loss
 
 
-torch.cuda.empty_cache()
+def main():
 
+    transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+        ]
+    )
 
-transform = transforms.Compose(
-    [
-        transforms.ToTensor(),
-    ]
-)
+    cell_mapper = CellMapper()
+    country_encoder = CountryEncoder()
+    dataset = GeoDataset(cfg, transform, cell_mapper, country_encoder)
 
-cell_mapper = CellMapper()
-country_encoder = CountryEncoder()
-dataset = GeoDataset(cfg, transform, cell_mapper, country_encoder)
+    def collate_variable_views(batch):
+        # Pad images to max views in this batch and build a mask.
+        max_views = max(x["images"].shape[0] for x in batch)
+        C, H, W = batch[0]["images"].shape[1:]
+        images = torch.zeros(
+            len(batch), max_views, C, H, W, dtype=batch[0]["images"].dtype
+        )
+        view_mask = torch.zeros(len(batch), max_views, dtype=torch.float32)
 
-
-def collate_variable_views(batch):
-    # Pad images to max views in this batch and build a mask.
-    max_views = max(x["images"].shape[0] for x in batch)
-    C, H, W = batch[0]["images"].shape[1:]
-    images = torch.zeros(len(batch), max_views, C, H, W, dtype=batch[0]["images"].dtype)
-    view_mask = torch.zeros(len(batch), max_views, dtype=torch.float32)
-
-    out = {
-        "images": images,
-        "view_mask": view_mask,
-        "lat": [],
-        "lon": [],
-        "country_id": [],
-    }
-
-    for i, x in enumerate(batch):
-        n = x["images"].shape[0]
-        images[i, :n] = x["images"]
-        view_mask[i, :n] = 1.0
-        out["lat"].append(x["lat"])
-        out["lon"].append(x["lon"])
-        out["country_id"].append(x["country_id"])
-
-    return out
-
-
-loader = DataLoader(
-    dataset,
-    batch_size=cfg.batch_size,
-    collate_fn=collate_variable_views,
-    # pin_memory=cfg.pin_memory,
-    # num_workers=cfg.num_workers,
-    # persistent_workers=cfg.persist_workers,
-)
-
-num_coarse, num_fine, num_country = 10000, 20000, 300
-model = GeoModel(num_coarse, num_fine, num_country).to(cfg.device)
-# model = torch.compile(model)
-opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
-
-print(f"Running on {cfg.device}")
-
-training_data = {
-    "device": cfg.device,
-    "model_name": cfg.model_name,
-    "coarse_res": cfg.coarse_res,
-    "fine_res": cfg.fine_res,
-    "batch_size": cfg.batch_size,
-    "lr": cfg.lr,
-    "image_size": cfg.image_size,
-    "num_workers": cfg.num_workers,
-    "epochs": cfg.epochs,
-    "checkpoint_every": cfg.save_every,
-    "num_coarse": num_coarse,
-    "num_fine": num_fine,
-    "num_country": num_country,
-    "training_log": [],
-    "best_epoch": -1,
-    "best_loss": -1.0
-}
-
-step, start_step = 0, 0
-
-ckpt_path = f"{cfg.ckpt_dir}/last.pt"
-best_ckpt_path = f"{cfg.ckpt_dir}/best.pt"
-if os.path.exists(ckpt_path):
-    print("Loading from last checkpoint")
-    start_step, training_data = load_ckpt(model, opt, ckpt_path, cfg.training_data_path)
-    print(f"Starting from step {start_step}")
-
-
-# scaler = torch.cuda.amp.GradScaler()
-
-for epoch in range(cfg.epochs):
-    # pbar = tqdm(total=len(loader), desc=f"Epoch {epoch + 1}/{cfg.epochs}", unit="batch")
-    pbar = tqdm(loader, desc=f"Epoch {epoch + 1}/{cfg.epochs}", unit="batch")
-
-    for batch in pbar:
-        while step < start_step:
-            step += 1
-            continue
-
-        imgs = batch["images"].to(cfg.device, non_blocking=True)
-        view_mask = batch["view_mask"].to(cfg.device, non_blocking=True)
-        # imgs = batch["images"].to(cfg.device)
-        # view_mask = batch["view_mask"].to(cfg.device)
-
-        coarse_ids, fine_ids, residuals = [], [], []
-
-        for lat, lon in zip(batch["lat"], batch["lon"]):
-            c, f = latlon_to_cells(lat, lon, cfg.coarse_res, cfg.fine_res)
-            c_id, f_id = cell_mapper.encode(c, f)
-
-            coarse_ids.append(c_id)
-            fine_ids.append(f_id)
-
-            dx, dy = compute_residual(lat, lon, f)
-            residuals.append([dx, dy])
-
-        target = {
-            "coarse": torch.tensor(coarse_ids).to(cfg.device),
-            "fine": torch.tensor(fine_ids).to(cfg.device),
-            "country": torch.tensor(batch["country_id"]).to(cfg.device),
-            "residual": torch.tensor(residuals).float().to(cfg.device),
+        out = {
+            "images": images,
+            "view_mask": view_mask,
+            "lat": [],
+            "lon": [],
+            "country_id": [],
         }
 
-        # opt.zero_grad(set_to_none=True)
-        opt.zero_grad()
-        # with torch.cuda.amp.autocast():
-        pred = model(imgs, view_mask=view_mask)
+        for i, x in enumerate(batch):
+            n = x["images"].shape[0]
+            images[i, :n] = x["images"]
+            view_mask[i, :n] = 1.0
+            out["lat"].append(x["lat"])
+            out["lon"].append(x["lon"])
+            out["country_id"].append(x["country_id"])
 
-        lat_tensor = torch.tensor(batch["lat"]).float().to(cfg.device)
-        lon_tensor = torch.tensor(batch["lon"]).float().to(cfg.device)
+        return out
 
-        loss = geo_loss(pred, target, lat_tensor, lon_tensor)
+    loader = DataLoader(
+        dataset,
+        batch_size=cfg.batch_size,
+        collate_fn=collate_variable_views,
+        pin_memory=cfg.pin_memory,
+        num_workers=cfg.num_workers,
+        persistent_workers=cfg.persist_workers if cfg.num_workers > 0 else False,
+    )
 
-        # scaler.scale(loss).backward()
-        # scaler.step(opt)
-        # scaler.update()
-        loss.backward()
-        opt.step()
+    num_coarse, num_fine, num_country = 10000, 20000, 300
+    model = GeoModel(num_coarse, num_fine, num_country).to(cfg.device)
+    # model = torch.compile(model)
+    opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
 
-        l = loss.item()
-        training_data["training_log"].append({"step": step, "loss": l})
+    print(f"Running on {cfg.device}")
 
+    training_data = {
+        "device": cfg.device,
+        "model_name": cfg.model_name,
+        "coarse_res": cfg.coarse_res,
+        "fine_res": cfg.fine_res,
+        "batch_size": cfg.batch_size,
+        "lr": cfg.lr,
+        "image_size": cfg.image_size,
+        "num_workers": cfg.num_workers,
+        "epochs": cfg.epochs,
+        "checkpoint_every": cfg.save_every,
+        "num_coarse": num_coarse,
+        "num_fine": num_fine,
+        "num_country": num_country,
+        "training_log": [],
+        "best_epoch": -1,
+        "best_loss": -1.0,
+    }
 
-        if step % cfg.save_every == 0:
-            tqdm.write(f"Saving checkpoint at step {step} with loss {l:.4f}")
-            save_ckpt(
-                model, opt, step, ckpt_path, training_data, cfg.training_data_path
-            )
+    step, start_step = 0, 0
 
-        # print(f"step {step} loss {loss.item():.4f}")
-        pbar.set_postfix(loss=f"{l:.4f}", step=step+1)
-        step += 1
-
-    if training_data["best_loss"] == -1.0 or training_data["best_loss"] > l:
-        training_data["best_loss"] = l
-        training_data["best_epoch"] = epoch
-        save_ckpt(
-            model, opt, step, best_ckpt_path, None, None
+    ckpt_path = f"{cfg.ckpt_dir}/last.pt"
+    best_ckpt_path = f"{cfg.ckpt_dir}/best.pt"
+    if os.path.exists(ckpt_path):
+        print("Loading from last checkpoint")
+        start_step, training_data = load_ckpt(
+            model, opt, ckpt_path, cfg.training_data_path
         )
+        print(f"Starting from step {start_step}")
+
+    scaler = torch.cuda.amp.GradScaler()
+
+    for epoch in range(cfg.epochs):
+        # pbar = tqdm(total=len(loader), desc=f"Epoch {epoch + 1}/{cfg.epochs}", unit="batch")
+        pbar = tqdm(loader, desc=f"Epoch {epoch + 1}/{cfg.epochs}", unit="batch")
+
+        if start_step > 0 and step < start_step:
+            skip_batches = start_step - step
+            pbar_iter = iter(pbar)
+            try:
+                next(itertools.islice(pbar_iter, skip_batches, skip_batches), None)
+                step = start_step
+            except StopIteration:
+                continue
+
+        for batch in pbar:
+            imgs = batch["images"].to(cfg.device, non_blocking=True)
+            view_mask = batch["view_mask"].to(cfg.device, non_blocking=True)
+            # imgs = batch["images"].to(cfg.device)
+            # view_mask = batch["view_mask"].to(cfg.device)
+
+            coarse_ids, fine_ids, residuals = [], [], []
+
+            for lat, lon in zip(batch["lat"], batch["lon"]):
+                c, f = latlon_to_cells(lat, lon, cfg.coarse_res, cfg.fine_res)
+                c_id, f_id = cell_mapper.encode(c, f)
+
+                coarse_ids.append(c_id)
+                fine_ids.append(f_id)
+
+                dx, dy = compute_residual(lat, lon, f)
+                residuals.append([dx, dy])
+
+            target = {
+                "coarse": torch.tensor(coarse_ids).to(cfg.device),
+                "fine": torch.tensor(fine_ids).to(cfg.device),
+                "country": torch.tensor(batch["country_id"]).to(cfg.device),
+                "residual": torch.tensor(residuals).float().to(cfg.device),
+            }
+
+            opt.zero_grad(set_to_none=True)
+            # opt.zero_grad()
+            with torch.cuda.amp.autocast():
+                pred = model(imgs, view_mask=view_mask)
+
+                lat_tensor = torch.tensor(batch["lat"]).float().to(cfg.device)
+                lon_tensor = torch.tensor(batch["lon"]).float().to(cfg.device)
+
+                loss = geo_loss(pred, target, lat_tensor, lon_tensor)
+
+            scaler.scale(loss).backward()
+            scaler.step(opt)
+            scaler.update()
+            # loss.backward()
+            # opt.step()
+
+            loss_f = loss.item()
+            training_data["training_log"].append({"step": step, "loss": loss_f})
+
+            if step % cfg.save_every == 0:
+                tqdm.write(f"Saving checkpoint at step {step} with loss {loss_f:.4f}")
+                save_ckpt(
+                    model, opt, step, ckpt_path, training_data, cfg.training_data_path
+                )
+
+            # print(f"step {step} loss {loss.item():.4f}")
+            pbar.set_postfix(loss=f"{loss_f:.4f}", step=step + 1)
+            step += 1
+
+        last_loss = (
+            training_data["training_log"][-1]["loss"]
+            if training_data["training_log"]
+            else -1.0
+        )
+        if training_data["best_loss"] == -1.0 or training_data["best_loss"] > last_loss:
+            training_data["best_loss"] = last_loss
+            training_data["best_epoch"] = epoch
+            save_ckpt(model, opt, step, best_ckpt_path, None, None)
+
+
+if __name__ == "__main__":
+    torch.cuda.empty_cache()
+    mp.set_start_method("spawn", force=True)
+    main()

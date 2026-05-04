@@ -1,3 +1,4 @@
+import os
 import random
 
 import cv2
@@ -6,7 +7,6 @@ import torch
 from datasets import load_dataset
 from preprocess import extract_geo_from_pil, preprocess
 from torch.utils.data import IterableDataset
-import os
 
 
 class CountryEncoder:
@@ -33,11 +33,9 @@ class GeoDataset(IterableDataset):
         self.country_encoder = country_encoder
         self.hf_token = os.getenv("HF_ACCESS_TOKEN")
 
-        print(f"HF TOKEN: {self.hf_token[:5]}...")
-
         streams: list = []
         for d in cfg.hf_datasets:
-            ds = load_dataset(d["name"], split="train", streaming=True, token=self.hf_token)
+            ds = load_dataset(d["name"], split="train", streaming=True)
             # Avoid Arrow type inference on raw PIL.Image objects by not using
             # `datasets.interleave_datasets()`. We still annotate each example
             # with source + pano format for downstream preprocessing.
@@ -99,7 +97,9 @@ class GeoDataset(IterableDataset):
 
                 img = np.array(img)
 
-                views = preprocess(img, item["_format"], num_views=None, size=self.cfg.image_size)
+                views = preprocess(
+                    img, item["_format"], num_views=None, size=self.cfg.image_size
+                )
                 views = [self.transform(v) for v in views]
 
                 yield {
