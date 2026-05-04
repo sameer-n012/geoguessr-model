@@ -72,6 +72,32 @@ def geo_loss(pred, target, lat, lon):
     return loss
 
 
+def collate_variable_views(batch):
+    # Pad images to max views in this batch and build a mask.
+    max_views = max(x["images"].shape[0] for x in batch)
+    C, H, W = batch[0]["images"].shape[1:]
+    images = torch.zeros(len(batch), max_views, C, H, W, dtype=batch[0]["images"].dtype)
+    view_mask = torch.zeros(len(batch), max_views, dtype=torch.float32)
+
+    out = {
+        "images": images,
+        "view_mask": view_mask,
+        "lat": [],
+        "lon": [],
+        "country_id": [],
+    }
+
+    for i, x in enumerate(batch):
+        n = x["images"].shape[0]
+        images[i, :n] = x["images"]
+        view_mask[i, :n] = 1.0
+        out["lat"].append(x["lat"])
+        out["lon"].append(x["lon"])
+        out["country_id"].append(x["country_id"])
+
+    return out
+
+
 def main():
 
     transform = transforms.Compose(
@@ -83,33 +109,6 @@ def main():
     cell_mapper = CellMapper()
     country_encoder = CountryEncoder()
     dataset = GeoDataset(cfg, transform, cell_mapper, country_encoder)
-
-    def collate_variable_views(batch):
-        # Pad images to max views in this batch and build a mask.
-        max_views = max(x["images"].shape[0] for x in batch)
-        C, H, W = batch[0]["images"].shape[1:]
-        images = torch.zeros(
-            len(batch), max_views, C, H, W, dtype=batch[0]["images"].dtype
-        )
-        view_mask = torch.zeros(len(batch), max_views, dtype=torch.float32)
-
-        out = {
-            "images": images,
-            "view_mask": view_mask,
-            "lat": [],
-            "lon": [],
-            "country_id": [],
-        }
-
-        for i, x in enumerate(batch):
-            n = x["images"].shape[0]
-            images[i, :n] = x["images"]
-            view_mask[i, :n] = 1.0
-            out["lat"].append(x["lat"])
-            out["lon"].append(x["lon"])
-            out["country_id"].append(x["country_id"])
-
-        return out
 
     loader = DataLoader(
         dataset,
