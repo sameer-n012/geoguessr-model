@@ -9,6 +9,12 @@ from preprocess import extract_geo_from_pil, preprocess
 from torch.utils.data import IterableDataset
 
 
+def _add_metadata_fn(example, source_tag, source_format):
+    example["_source"] = source_tag
+    example["_format"] = source_format
+    return example
+
+
 class CountryEncoder:
     def __init__(self):
         self.map = {}
@@ -39,12 +45,10 @@ class GeoDataset(IterableDataset):
             # Avoid Arrow type inference on raw PIL.Image objects by not using
             # `datasets.interleave_datasets()`. We still annotate each example
             # with source + pano format for downstream preprocessing.
-            ds = ds.map(
-                lambda _x, _source=d["tag"], _format=d["format"]: {
-                    "_source": _source,
-                    "_format": _format,
-                }
+            map_fn = partial(
+                _add_metadata_fn, source_tag=d["tag"], source_format=d["format"]
             )
+            ds = ds.map(map_fn)
             streams.append(ds)
 
         self.streams = streams
