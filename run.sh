@@ -1,6 +1,6 @@
 #!/bin/bash
 
-conda deactivate
+# conda deactivate
 
 set -a
 source .venv/bin/activate
